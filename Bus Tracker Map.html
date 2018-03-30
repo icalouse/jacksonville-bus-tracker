@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8' />
+    <title>Jacksonville Bus Tracker</title>
+    <meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.0/jquery.min.js"></script>
+    <script src='https://api.tiles.mapbox.com/mapbox-gl-js/v0.34.0/mapbox-gl.js'></script>
+    <link href='https://api.tiles.mapbox.com/mapbox-gl-js/v0.34.0/mapbox-gl.css' rel='stylesheet' />
+    <style>
+    body { margin:0; padding:0; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+    .coordinates { 
+       background: rgba(0,0,0,0.8);
+       color: #fff;
+       position: absolute;
+       bottom: 30px;
+       left: 12px;
+       padding:6px 10px;
+       margin: 0;
+       font-size: 16px;
+       line-height: 21px;
+       border-radius: 3px;
+       display: none;
+   }
+   </style>
+</head>
+<body>
+    <div id='map'></div>
+    <pre id='coordinates' class='coordinates'></pre>
+    <script>
+
+	// loading an XML document FROM Prof. Sieber
+	function loadXMLDoc(filename)	{
+		if (window.XMLHttpRequest)
+        {
+            xhttp=new XMLHttpRequest();
+        }
+		else // code for IE5 and IE6
+        {
+            xhttp=new ActiveXObject("Microsoft.XMLHTTP");
+        }
+        xhttp.open("GET",filename,false);
+        xhttp.send();
+        return xhttp.responseXML;
+    }
+//spherical distance formula from StackOverflow user
+function getDistanceFromLatLonInKm(lat1,lon1,lat2,lon2) {
+    var R = 6371; // Radius of the earth in km
+    var dLat = deg2rad(lat2-lat1);  // deg2rad below
+    var dLon = deg2rad(lon2-lon1);
+    var a =
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    var d = R * c; // Distance in km
+    return d;
+    }
+
+function deg2rad(deg) {
+    return deg * (Math.PI/180)
+}
+
+mapboxgl.accessToken = 'pk.eyJ1IjoiaWNhbG91c2UiLCJhIjoiY2owbGM4eDdiMDAwZDJxcjM5bm94NnE0ZiJ9.dLXS1E2dZZB6-QCNhawzlA';
+var map = new mapboxgl.Map({
+    container: 'map', // container id
+    style: 'mapbox://styles/icalouse/cj0myn7h8006j2smr8u01y1zl', //stylesheet location
+    center: [-81.62, 30.3], // starting position
+    zoom: 10 // starting zoom
+});
+
+// Holds mousedown state for events. if this
+// flag is active, we move the point on `mousemove`.
+var isDragging;
+
+// Is the cursor over a point? if this
+// flag is active, we listen for a mousedown event.
+var isCursorOverPoint;
+//<pre> element formerly displaying click coordinates
+//now used to display data to user
+var coordinates = document.getElementById('coordinates');
+//global variable to hold coords of bus stop
+var nearestStop;
+var canvas = map.getCanvasContainer();
+
+var defaultUserPoint = {
+    "type": "FeatureCollection",
+    "features": [{
+        "type": "Feature",
+        "geometry": {
+            "type": "Point",
+            "coordinates": [-81.62, 30.3]
+        }
+    }]
+};
+
+function mouseDown() {
+    if (!isCursorOverPoint) return;
+
+    isDragging = true;
+
+    // Set a cursor indicator
+    canvas.style.cursor = 'grab';
+
+    // Mouse events
+    map.on('mousemove', onMove);
+    map.once('mouseup', onUp);
+}
+
+function onMove(e) {
+    if (!isDragging) return;
+    var coords = e.lngLat;
+
+    // Set a UI indicator for dragging.
+    canvas.style.cursor = 'grabbing';
+
+    // Update the user Point feature in `geojson` coordinates
+    // and call setData to the source layer `point` on it.
+    defaultUserPoint.features[0].geometry.coordinates = [coords.lng, coords.lat];
+    map.getSource('point').setData(defaultUserPoint);
+
+}
+
+// UPDATE BUS MARKER SOURCE
+function changeMarker(sourceId, lng, lat){
+	var newPoint = {"geometry": {"type": "Point", "coordinates": [lng, lat]}, "type": "Feature", "properties": {}};
+	map.getSource(sourceId).setData(newPoint);	
+}
+// UPDATE BUS ROUTE SOURCE
+function changeRoute(pathArray){
+	var newLine = {"geometry": {"type": "MultiLineString", "coordinates": pathArray}, "type": "Feature", "properties": {}};
+	map.getSource("busRoute").setData(newLine);
+}
+//Returns StopID and updates nearestStop variable with lat, lon of bus stop
+function findNearestStop(lat, lng){
+    var queryUrlHead = 'https://www.googleapis.com/fusiontables/v2/query?sql=SELECT';
+    var queryUrlTail = '&key=AIzaSyCAI2GoGWfLBvgygLKQp5suUk3RCG7r_ME';
+    var tableId = '1YX3xMZE65ePWxqXaanXH593SZSwQ9PU89XfH_TYN';
+	//orders entries by distance from user location, selects the top 1
+	//returns the lat, lon, and stopID of the closest bus stop
+    var query = "'stop_lat', 'stop_lon', 'stop_id' FROM " + tableId + " ORDER BY ST_DISTANCE(latlon, LATLNG(" + lat + "," + lng + ")) LIMIT 1";
+    var queryurl = encodeURI(queryUrlHead + query + queryUrlTail);
+    var stopId;
+    // gets query results
+	//updates bus stop marker with most recent coordinates
+    $.ajax({
+        url: queryurl,
+        success: function(response){
+           nearestStop = response["rows"][0];
+           changeMarker("stopMarker", nearestStop[1], nearestStop[0]);
+           stopId =  nearestStop[2];
+       },
+       async: false
+   });
+    return stopId; 
+}
+//When user point is released
+function onUp(e) {
+    if (!isDragging) return;
+    var coords = e.lngLat;
+    // sets display box for text content
+    coordinates.style.display = 'block';
+    canvas.style.cursor = '';
+    isDragging = false;
+
+    // Unbind mouse events
+    map.off('mousemove', onMove);
+
+    var stopId = findNearestStop(coords["lat"], coords["lng"]);
+	//spherical distance from user location to bus stop
+    var walkDist = getDistanceFromLatLonInKm(coords['lat'], coords['lng'], nearestStop[0], nearestStop[1]);
+    // construct query
+    var xmlPrediction = "http://webservices.nextbus.com/service/publicXMLFeed?command=predictions&a=jtafla&stopId=";
+    var xmlBusLocation = "http://webservices.nextbus.com/service/publicXMLFeed?command=vehicleLocations&a=jtafla";
+    var xmlRouteConfig = "http://webservices.nextbus.com/service/publicXMLFeed?command=routeConfig&a=jtafla&r=";    
+	var predictionDoc;
+    var busLocationDoc;
+    var routeConfigDoc;
+    var realRoute;
+    var closestBus;
+    var nextArrival;
+    var routeTitle;
+    var routeDir;
+    var stopTitle;
+	// find walk time in seconds based on 0.07 km/min
+	var walkTime = (walkDist/0.07)*60;
+	
+	// min time is used to hold the smallest arrival time when iterating through predictions feed
+	var minTime = 999999999;
+	
+	// PREDICT NEXT BUS
+	// load predictions XML document
+	predictionDoc = loadXMLDoc(xmlPrediction + stopId);
+	//some bus stops have no buses arriving and prediction[] is empty
+    if(predictionDoc.getElementsByTagName("prediction").length > 0){
+		// iterate through individual prediction elements
+		// pick the first to arrive after walk time
+       for(x = 0; x < predictionDoc.getElementsByTagName("prediction").length; x++){
+		   //seconds to arrival must be less than the most recent minTime and more than walkTime
+		// parse seconds attribute as integer
+		if((parseInt(predictionDoc.getElementsByTagName("prediction")[x].attributes["seconds"].value) < minTime) && (parseInt(predictionDoc.getElementsByTagName("prediction")[x].attributes["seconds"].value) > walkTime)){
+			//updates minimum arrival time
+			minTime = predictionDoc.getElementsByTagName("prediction")[x].attributes["seconds"].value;
+			//same as minTime but holds minutes; only used for displaying
+			nextArrival = predictionDoc.getElementsByTagName("prediction")[x].attributes["minutes"].value;
+            //headsign pt. 1
+			routeTitle = predictionDoc.getElementsByTagName("prediction")[x].parentElement.parentElement.attributes["routeTitle"].value;
+            //headsign pt. 2: direction
+			routeDir = predictionDoc.getElementsByTagName("prediction")[x].parentElement.attributes["title"].value;
+            //true routeID of next bus; used for getting route configurations and for testing current locations
+			realRoute = predictionDoc.getElementsByTagName("prediction")[x].parentElement.parentElement.attributes["routeTag"].value;
+            //stopTitle = text to display
+			stopTitle = predictionDoc.getElementsByTagName("prediction")[x].parentElement.parentElement.attributes["stopTitle"].value;
+            //vehicleID used for getting current bus location
+			closestBus = predictionDoc.getElementsByTagName("prediction")[x].attributes["vehicle"].value;
+        }
+    }
+}
+else {
+	//if predictions for bus stop is empty, set map layers to middle of the Atlantic
+    changeMarker("busMarker", 0, 0);
+    changeRoute([[[1, 1], [1, -1]], [[-1, 1], [1, 1]]]);
+	//displays walk time and stop title and then breaks
+    coordinates.innerHTML = 'Walk time to bus stop: ' + (Math.round(Math.round(walkTime)/60) + ' minutes and ' + (Math.round(Math.round(walkTime)/60)%60)) + ' seconds<br />Bus stop location: ' + stopTitle + '<br />No buses are currently serving this route'
+    return;
+}
+// LOCATE NEXT BUS
+// load vehicle location document
+busLocationDoc = loadXMLDoc(xmlBusLocation);
+//gets route tag of the "vehicle id" in bus locations feed
+var routeTag = busLocationDoc.getElementById(closestBus.toString()).attributes["routeTag"].value;
+	//sometimes vehicleID refers to a bus on a different route -- doesn't stop at user bus stop
+    if(routeTag === realRoute){
+    	
+    	// pick coordinates of bus
+    	var nearestLng = busLocationDoc.getElementById(closestBus.toString()).attributes["lon"].value;
+    	var nearestLat = busLocationDoc.getElementById(closestBus.toString()).attributes["lat"].value;
+    	// update bus marker
+    	changeMarker("busMarker", nearestLng, nearestLat);
+		//updates display
+        coordinates.innerHTML = 'Walk time to bus stop: ' + (Math.round(Math.round(walkTime)/60) + ' minutes and ' + (Math.round(Math.round(walkTime)/60)%60)) + ' seconds<br />Bus stop location: ' + stopTitle + '<br />Time until bus departure: ' + nextArrival + ' minutes and ' + (minTime%60) + ' seconds<br />Headsign: ' + routeTitle + ' ' + routeDir;
+    }
+    else {
+		//if no accurate bus locaton available, reMOVE bus marker
+        changeMarker("busMarker", 0, 0);
+		//updates display with bus location error message
+        coordinates.innerHTML = 'Walk time to bus stop: ' + (Math.round(Math.round(walkTime)/60) + ' minutes and ' + (Math.round(Math.round(walkTime)/60)%60)) + ' seconds<br />Bus stop location: ' + stopTitle + '<br />Time until bus departure: ' + nextArrival + ' minutes and ' + (minTime%60) + ' seconds<br />Headsign: ' + routeTitle + ' ' + routeDir + '<br />Current bus location unavailable for this route'
+    }
+	// DISPLAY BUS ROUTE
+	// load route config document
+	routeConfigDoc = loadXMLDoc(xmlRouteConfig + realRoute);
+	// iterate through all points and create an array of coordinate arrays
+	var pathArray = [];
+	for(x = 0; x < routeConfigDoc.getElementsByTagName("path").length; x++){
+		var path = [];
+		//this includes all instances of a particular routeTag despite multiple directions that may differ slightly
+		for(y = 0; y < routeConfigDoc.getElementsByTagName("path")[x].getElementsByTagName("point").length; y++){
+			path[y] = [routeConfigDoc.getElementsByTagName("path")[x].getElementsByTagName("point")[y].attributes["lon"].value, routeConfigDoc.getElementsByTagName("path")[x].getElementsByTagName("point")[y].attributes["lat"].value];
+		}
+		pathArray[x] = path;
+	}
+	// update polyline
+	changeRoute(pathArray);
+}
+
+map.on('load', function() {
+    // Feature Collection of default line
+	//default to atlantic ocean
+    var originalLine =  {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "geometry": {
+                "type": "MultiLineString",
+                "coordinates": [
+                [ [1, 1], [1, -1] ],
+                [ [-1, 1], [1, 1] ]
+                ]
+            }
+        }]
+    };
+	//feature collection for default point locations -- Atlantic Ocean again
+    var originalPoint =  {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [0, 0]
+            }
+        }]
+    };
+    // Add a single point to the map
+    map.addSource('point', {
+        "type": "geojson",
+        "data": defaultUserPoint
+    });
+	//add three other sources to map
+    map.addSource('busMarker', { type: 'geojson', data: originalPoint });
+    map.addSource('stopMarker', { type: 'geojson', data: originalPoint });
+    map.addSource('busRoute', {type: 'geojson', data: originalLine});
+    //all of our layer symbology follow
+	map.addLayer({
+        "id": "busRoute",
+        "type": "line",
+        "source": "busRoute",
+        "layout": {
+            "line-join": "round",
+            "line-cap": "round"
+        },
+        "paint": {
+            "line-color": "#a50000",
+            "line-width": 1
+        }
+    });
+    
+	// user point marker
+    map.addLayer({
+        "id": "point",
+        "type": "symbol",
+        "source": "point",
+        "layout": {
+            "icon-image": "hospital-15",
+            "icon-size": 1.2
+        }
+    });
+    map.addLayer({
+        "id": "stopMarker",
+        "type": "circle",
+        "source": "stopMarker",
+        "paint": {
+            "circle-radius": 6,
+            "circle-color": "#00ff00"
+        }
+    });
+    map.addLayer({
+        "id": "busMarker",
+        "type": "symbol",
+        "source": "busMarker",
+        "layout": {
+            "icon-image": "bus-15",
+            "icon-size": 1.15
+        }
+    });
+
+	//Tells user to begin
+	alert("Drag the dot to a user location to find your next bus!");
+	
+    // If a feature is found on map movement,
+    // set a flag to permit a mousedown events.
+    map.on('mousemove', function(e) {
+        var features = map.queryRenderedFeatures(e.point, { layers: ['point'] });
+
+        // Change point and cursor style as a UI indicator
+        // and set a flag to enable other mouse events.
+		//We are changing the size of the user point when hovered over
+        if (features.length) {
+            map.setLayoutProperty('point', 'icon-size', 1.5);
+            canvas.style.cursor = 'move';
+            isCursorOverPoint = true;
+            map.dragPan.disable();
+        } else {
+            map.setLayoutProperty('point', 'icon-size', 1.2);
+            canvas.style.cursor = '';
+            isCursorOverPoint = false;
+            map.dragPan.enable();
+        }
+    });
+
+    // Set `true` to dispatch the event before other functions call it. This
+    // is necessary for disabling the default map dragging behaviour.
+    map.on('mousedown', mouseDown, true);    
+});
+
+</script>
+
+</body>
+</html>
