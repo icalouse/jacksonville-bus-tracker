@@ -10,7 +10,7 @@
     <style>
     body { margin:0; padding:0; }
     #map { position:absolute; top:0; bottom:0; width:100%; }
-    .coordinates { 
+    .coordinates {
        background: rgba(0,0,0,0.8);
        color: #fff;
        position: absolute;
@@ -116,7 +116,7 @@ function onMove(e) {
     canvas.style.cursor = 'grabbing';
 
     // Update the user Point feature in `geojson` coordinates
-    // and call setData to the source layer `point` on it.
+    // and call setData to the source layer `point` on it
     defaultUserPoint.features[0].geometry.coordinates = [coords.lng, coords.lat];
     map.getSource('point').setData(defaultUserPoint);
 
@@ -125,7 +125,7 @@ function onMove(e) {
 // UPDATE BUS MARKER SOURCE
 function changeMarker(sourceId, lng, lat){
 	var newPoint = {"geometry": {"type": "Point", "coordinates": [lng, lat]}, "type": "Feature", "properties": {}};
-	map.getSource(sourceId).setData(newPoint);	
+	map.getSource(sourceId).setData(newPoint);
 }
 // UPDATE BUS ROUTE SOURCE
 function changeRoute(pathArray){
@@ -153,7 +153,7 @@ function findNearestStop(lat, lng){
        },
        async: false
    });
-    return stopId; 
+    return stopId;
 }
 //When user point is released
 function onUp(e) {
@@ -173,7 +173,7 @@ function onUp(e) {
     // construct query
     var xmlPrediction = "http://webservices.nextbus.com/service/publicXMLFeed?command=predictions&a=jtafla&stopId=";
     var xmlBusLocation = "http://webservices.nextbus.com/service/publicXMLFeed?command=vehicleLocations&a=jtafla";
-    var xmlRouteConfig = "http://webservices.nextbus.com/service/publicXMLFeed?command=routeConfig&a=jtafla&r=";    
+    var xmlRouteConfig = "http://webservices.nextbus.com/service/publicXMLFeed?command=routeConfig&a=jtafla&r=";
 	var predictionDoc;
     var busLocationDoc;
     var routeConfigDoc;
@@ -185,10 +185,10 @@ function onUp(e) {
     var stopTitle;
 	// find walk time in seconds based on 0.07 km/min
 	var walkTime = (walkDist/0.07)*60;
-	
+
 	// min time is used to hold the smallest arrival time when iterating through predictions feed
 	var minTime = 999999999;
-	
+
 	// PREDICT NEXT BUS
 	// load predictions XML document
 	predictionDoc = loadXMLDoc(xmlPrediction + stopId);
@@ -232,7 +232,7 @@ busLocationDoc = loadXMLDoc(xmlBusLocation);
 var routeTag = busLocationDoc.getElementById(closestBus.toString()).attributes["routeTag"].value;
 	//sometimes vehicleID refers to a bus on a different route -- doesn't stop at user bus stop
     if(routeTag === realRoute){
-    	
+
     	// pick coordinates of bus
     	var nearestLng = busLocationDoc.getElementById(closestBus.toString()).attributes["lon"].value;
     	var nearestLat = busLocationDoc.getElementById(closestBus.toString()).attributes["lat"].value;
@@ -314,7 +314,7 @@ map.on('load', function() {
             "line-width": 1
         }
     });
-    
+
 	// user point marker
     map.addLayer({
         "id": "point",
@@ -346,7 +346,7 @@ map.on('load', function() {
 
 	//Tells user to begin
 	alert("Drag the dot to a user location to find your next bus!");
-	
+
     // If a feature is found on map movement,
     // set a flag to permit a mousedown events.
     map.on('mousemove', function(e) {
@@ -370,7 +370,7 @@ map.on('load', function() {
 
     // Set `true` to dispatch the event before other functions call it. This
     // is necessary for disabling the default map dragging behaviour.
-    map.on('mousedown', mouseDown, true);    
+    map.on('mousedown', mouseDown, true);
 });
 
 </script>
